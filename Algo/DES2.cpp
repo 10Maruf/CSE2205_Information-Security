@@ -23,7 +23,6 @@ const int pc_1[56] = {57, 49, 41, 33, 25, 17, 9,
 
 int num_leftShift[16] = {1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1}; // number of bits to shift for each iteration
 
-
 const int pc_2[48] = {14, 17, 11, 24, 1, 5,
 					  3, 28, 15, 6, 21, 10,
 					  23, 19, 12, 4, 26, 8,
@@ -121,15 +120,14 @@ string shift_bit(string s, int n)
 	return k;
 }
 
- 
 // expanding according to expantion table E_t
-string expand_R(const string &r32) {
-    string r;
-    for (int j = 0; j < 48; j++)
-        r += r32[E_t[j] - 1];
-    return r;
+string expand_R(const string &r32)
+{
+	string r;
+	for (int j = 0; j < 48; j++)
+		r += r32[E_t[j] - 1];
+	return r;
 }
-
 
 string xor_add(string s1, string s2)
 {
@@ -156,141 +154,153 @@ string get_element_from_box(string s, int k)
 	return Dec_to_Bin(S[k][dec1][dec2]);
 }
 
-void generate_subkeys(const string &key_hex) {
-    // 1) convert hex → 64-bit binary
-    string key64 = Hex_to_Bin(key_hex);
+void generate_subkeys(const string &key_hex)
+{
+	// 1) convert hex → 64-bit binary
+	string key64 = Hex_to_Bin(key_hex);
 
-    // 2) then permute key64 with pc_1, split C/D, shifts, pc_2…
-    string perm;
-    for (int i = 0; i < 56; i++)
-        perm += key64[pc_1[i] - 1];
-    string C = perm.substr(0,28), D = perm.substr(28,28);
-    for (int i = 0; i < 16; i++) {
-        C = shift_bit(C, num_leftShift[i]);
-        D = shift_bit(D, num_leftShift[i]);
-        string CD = C + D, sub;
-        for (int j = 0; j < 48; j++)
-            sub += CD[pc_2[j] - 1];
-        subkeys[i] = sub;
-    }
+	// 2) then permute key64 with pc_1, split C/D, shifts, pc_2…
+	string perm;
+	for (int i = 0; i < 56; i++)
+		perm += key64[pc_1[i] - 1];
+	string C = perm.substr(0, 28), D = perm.substr(28, 28);
+	for (int i = 0; i < 16; i++)
+	{
+		C = shift_bit(C, num_leftShift[i]);
+		D = shift_bit(D, num_leftShift[i]);
+		string CD = C + D, sub;
+		for (int j = 0; j < 48; j++)
+			sub += CD[pc_2[j] - 1];
+		subkeys[i] = sub;
+	}
 }
 
+string encrypt(const string &plain_hex, const string &key_hex)
+{
+	// 1) Generate all 16 round subkeys
+	generate_subkeys(key_hex);
 
-string encrypt(const string &plain_hex, const string &key_hex) {
-    // 1) Generate all 16 round subkeys
-    generate_subkeys(key_hex);
+	// 2) Convert plaintext from hex to 64-bit binary
+	string bin = Hex_to_Bin(plain_hex);
 
-    // 2) Convert plaintext from hex to 64-bit binary
-    string bin = Hex_to_Bin(plain_hex);
+	// 3) Initial Permutation (IP)
+	string perm;
+	perm.reserve(64);
+	for (int i = 0; i < 64; ++i)
+	{
+		perm += bin[IP_t[i] - 1];
+	}
 
-    // 3) Initial Permutation (IP)
-    string perm;
-    perm.reserve(64);
-    for (int i = 0; i < 64; ++i) {
-        perm += bin[IP_t[i] - 1];
-    }
+	// 4) Split into Left and Right halves
+	string L = perm.substr(0, 32);
+	string R = perm.substr(32, 32);
 
-    // 4) Split into Left and Right halves
-    string L = perm.substr(0, 32);
-    string R = perm.substr(32, 32);
+	// 5) 16 Feistel Rounds
+	for (int round = 0; round < 16; ++round)
+	{
+		// 5.1) Expand R from 32 to 48 bits
+		string R_expanded = expand_R(R);
 
-    // 5) 16 Feistel Rounds
-    for (int round = 0; round < 16; ++round) {
-        // 5.1) Expand R from 32 to 48 bits
-        string R_expanded = expand_R(R);
-        
-        // 5.2) XOR with round key
-        string xored = xor_add(R_expanded, subkeys[round]);
+		// 5.2) XOR with round key
+		string xored = xor_add(R_expanded, subkeys[round]);
 
-        // 5.3) S-box substitution (48 -> 32 bits)
-        string sbox_out;
-        for (int i = 0; i < 8; ++i) {
-            string chunk = xored.substr(i * 6, 6);
-            sbox_out += get_element_from_box(chunk, i);
-        }
+		// 5.3) S-box substitution (48 -> 32 bits)
+		string sbox_out;
+		for (int i = 0; i < 8; ++i)
+		{
+			string chunk = xored.substr(i * 6, 6);
+			sbox_out += get_element_from_box(chunk, i);
+		}
 
-        // 5.4) P-box permutation
-        string p_out;
-        p_out.reserve(32);
-        for (int i = 0; i < 32; ++i) {
-            p_out += sbox_out[P[i] - 1];
-        }
+		// 5.4) P-box permutation
+		string p_out;
+		p_out.reserve(32);
+		for (int i = 0; i < 32; ++i)
+		{
+			p_out += sbox_out[P[i] - 1];
+		}
 
-        // 5.5) Feistel function and swap
-        string newR = xor_add(L, p_out);
-        L = R;
-        R = newR;
-    }
+		// 5.5) Feistel function and swap
+		string newR = xor_add(L, p_out);
+		L = R;
+		R = newR;
+	}
 
-    // 6) Pre-output: combine R and L (note the swap)
-    string combined = R + L;
+	// 6) Pre-output: combine R and L (note the swap)
+	string combined = R + L;
 
-    // 7) Final Permutation (inverse IP)
-    string final_bin;
-    final_bin.reserve(64);
-    for (int i = 0; i < 64; ++i) {
-        final_bin += combined[P_1[i] - 1];
-    }
+	// 7) Final Permutation (inverse IP)
+	string final_bin;
+	final_bin.reserve(64);
+	for (int i = 0; i < 64; ++i)
+	{
+		final_bin += combined[P_1[i] - 1];
+	}
 
-    // 8) Convert binary to hex and return
-    return Bin_to_Hex(final_bin);
+	// 8) Convert binary to hex and return
+	return Bin_to_Hex(final_bin);
 }
-string decrypt(const string &cipher_hex, const string &key_hex) {
-    // 1) Generate subkeys in normal order
-    generate_subkeys(key_hex);
-    // 2) Reverse the subkey order for decryption
-    reverse(subkeys, subkeys + 16);
+string decrypt(const string &cipher_hex, const string &key_hex)
+{
+	// 1) Generate subkeys in normal order
+	generate_subkeys(key_hex);
+	// 2) Reverse the subkey order for decryption
+	reverse(subkeys, subkeys + 16);
 
-    // 3) Convert ciphertext from hex to 64-bit binary
-    string bin = Hex_to_Bin(cipher_hex);
+	// 3) Convert ciphertext from hex to 64-bit binary
+	string bin = Hex_to_Bin(cipher_hex);
 
-    // 4) Initial Permutation (IP)
-    string perm;
-    perm.reserve(64);
-    for (int i = 0; i < 64; ++i) {
-        perm += bin[IP_t[i] - 1];
-    }
+	// 4) Initial Permutation (IP)
+	string perm;
+	perm.reserve(64);
+	for (int i = 0; i < 64; ++i)
+	{
+		perm += bin[IP_t[i] - 1];
+	}
 
-    // 5) Split into Left and Right halves
-    string L = perm.substr(0, 32);
-    string R = perm.substr(32, 32);
+	// 5) Split into Left and Right halves
+	string L = perm.substr(0, 32);
+	string R = perm.substr(32, 32);
 
-    // 6) 16 Feistel Rounds (same as encrypt but with reversed subkeys)
-    for (int round = 0; round < 16; ++round) {
-        string R_expanded = expand_R(R);
-        string xored = xor_add(R_expanded, subkeys[round]);
+	// 6) 16 Feistel Rounds (same as encrypt but with reversed subkeys)
+	for (int round = 0; round < 16; ++round)
+	{
+		string R_expanded = expand_R(R);
+		string xored = xor_add(R_expanded, subkeys[round]);
 
-        string sbox_out;
-        for (int i = 0; i < 8; ++i) {
-            string chunk = xored.substr(i * 6, 6);
-            sbox_out += get_element_from_box(chunk, i);
-        }
+		string sbox_out;
+		for (int i = 0; i < 8; ++i)
+		{
+			string chunk = xored.substr(i * 6, 6);
+			sbox_out += get_element_from_box(chunk, i);
+		}
 
-        string p_out;
-        p_out.reserve(32);
-        for (int i = 0; i < 32; ++i) {
-            p_out += sbox_out[P[i] - 1];
-        }
+		string p_out;
+		p_out.reserve(32);
+		for (int i = 0; i < 32; ++i)
+		{
+			p_out += sbox_out[P[i] - 1];
+		}
 
-        string newR = xor_add(L, p_out);
-        L = R;
-        R = newR;
-    }
+		string newR = xor_add(L, p_out);
+		L = R;
+		R = newR;
+	}
 
-    // 7) Pre-output: combine R and L (note the swap)
-    string combined = R + L;
+	// 7) Pre-output: combine R and L (note the swap)
+	string combined = R + L;
 
-    // 8) Final Permutation (inverse IP)
-    string final_bin;
-    final_bin.reserve(64);
-    for (int i = 0; i < 64; ++i) {
-        final_bin += combined[P_1[i] - 1];
-    }
+	// 8) Final Permutation (inverse IP)
+	string final_bin;
+	final_bin.reserve(64);
+	for (int i = 0; i < 64; ++i)
+	{
+		final_bin += combined[P_1[i] - 1];
+	}
 
-    // 9) Convert binary to hex and return
-    return Bin_to_Hex(final_bin);
+	// 9) Convert binary to hex and return
+	return Bin_to_Hex(final_bin);
 }
-
 
 string Bin_to_Hex(string s)
 {
@@ -414,37 +424,75 @@ string Dec_to_Bin(int n)
 		bin = '0' + bin;
 	return bin;
 }
-int main() {
-    bool is_valid;
-    string plain_txt, key;
 
-    // Read and validate plaintext
-    cout << "Enter PLAIN TEXT of EXACTLY 16 character written in hexadecimal : ";
-    do {
-        is_valid = true;
-        cin >> plain_txt;
-        if (plain_txt.size() != 16) is_valid = false;
-        else for (char c : plain_txt) if (!isxdigit(c)) { is_valid = false; break; }
-        if (!is_valid) cout << "invalid input, try again : ";
-    } while (!is_valid);
 
-    // Read and validate key
-    cout << "Enter a KEY of EXACTLY 16 character written in hexadecimal : ";
-    do {
-        is_valid = true;
-        cin >> key;
-        if (key.size() != 16) is_valid = false;
-        else for (char c : key) if (!isxdigit(c)) { is_valid = false; break; }
-        if (!is_valid) cout << "invalid input, try again : ";
-    } while (!is_valid);
+int main()
+{
+	bool is_valid;
+	string text, key;
 
-    // Encrypt and decrypt
-    string cipher = encrypt(plain_txt, key);
-    cout << "Cipher: " << cipher << endl;
-    string decrypted = decrypt(cipher, key);
-    cout << "Decrypted: " << decrypted << endl;
+	// 1) Read and validate text (plaintext or ciphertext)
+	cout << "Enter text (16 hex chars): ";
+	do
+	{
+		is_valid = true;
+		cin >> text;
+		if (text.size() != 16)
+			is_valid = false;
+		else
+			for (char c : text)
+				if (!isxdigit(c))
+				{
+					is_valid = false;
+					break;
+				}
+		if (!is_valid)
+			cout << "Invalid input, try again: ";
+	} while (!is_valid);
 
-    return 0;
+	// 2) Read and validate key
+	cout << "Enter key    (16 hex chars): ";
+	do
+	{
+		is_valid = true;
+		cin >> key;
+		if (key.size() != 16)
+			is_valid = false;
+		else
+			for (char c : key)
+				if (!isxdigit(c))
+				{
+					is_valid = false;
+					break;
+				}
+		if (!is_valid)
+			cout << "Invalid input, try again: ";
+	} while (!is_valid);
+
+	// 3) Choose operation
+	char choice;
+	cout << "Choose operation: (E)ncrypt or (D)ecrypt: ";
+	do
+	{
+		cin >> choice;
+		choice = toupper(choice);
+		if (choice != 'E' && choice != 'D')
+			cout << "Invalid choice, enter E or D: ";
+	} while (choice != 'E' && choice != 'D');
+
+	// 4) Perform and print result
+	if (choice == 'E')
+	{
+		string cipher = encrypt(text, key);
+		cout << "Ciphertext: " << cipher << endl;
+	}
+	else
+	{
+		string plain = decrypt(text, key);
+		cout << "Plaintext : " << plain << endl;
+	}
+
+	return 0;
 }
 
 // Enter PLAIN TEXT of EXACTLY 16 character written in hexadecimal : 123456ABCD132536
